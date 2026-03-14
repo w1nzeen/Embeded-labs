@@ -40,19 +40,19 @@ def task1():
 '''Друга таска "Вивід лінії, фігури" '''
 def task2():
     OLED.fill(0)
-    OLED.hline(19, 11, 93, 15)
+    OLED.hline(19, 11, 93, 15) # Формат x, y, weight, colour
     OLED.show()
     sleep(1)
-    OLED.vline(111, 12, 51, 15)
+    OLED.vline(111, 12, 51, 15) # Формат x, y, height, colour
     OLED.show()
     sleep(1)
     OLED.line(111, 62, 19, 12, 15) # Формат x, y, x2, y2, colour
     OLED.show()
     sleep(1)
-    OLED.rect(21, 45, 44, 15, 15)
+    OLED.rect(21, 45, 44, 15, 15) # Формат x, y, weight, height, colour, True/False= Filled not Filled
     OLED.show()
     sleep(1)
-    OLED.rect(21, 65, 44, 13, 15, True)
+    OLED.rect(21, 65, 44, 13, 15, True) # Формат x, y, weight, height, colour, True/False= Filled not Filled
     OLED.show()
     sleep(3)
 
