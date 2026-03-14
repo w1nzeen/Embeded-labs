@@ -3,6 +3,11 @@
 Симулятор дисплея **SSD1327** (128×128, 4-bit grayscale) для Raspberry Pi Pico.  
 Дозволяє тестувати MicroPython-код на звичайному ПК без підключення залізничного обладнання.
 
+# Корисні покликання
+```
+Робота з буфером: https://docs.micropython.org/en/latest/library/framebuf.html 
+```
+
 ---
 
 ## Вміст
