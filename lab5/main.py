@@ -2,6 +2,9 @@ from machine import Pin, SoftI2C
 from OLED_1inch5 import OLED_1inch5
 from time import sleep
 
+from pixel_font import draw_text, text_width, CHAR_H, SCALE # КАСТОМНА БІБЛІОТЕКА, якщо не використовуєте піксельні шрифти видаліть
+
+
 i2c_num = 1
 sda_num = Pin(6)
 scl_num = Pin(7)
@@ -60,10 +63,25 @@ def task2():
 
 '''Третя таска "Анімація" '''
 def task3():
-    pass
+    pass 
 
-
-'''Основний цикл'''
+    MESSAGE    = "Smarahdove Nebo Chekaye Na Zavtra! "
+    SPEED      = 3       # пікселів за кадр
+    DELAY      = 0.01    # затримка між кадрами
+ 
+    text_w     = text_width(MESSAGE)
+    full_cycle = 128 + text_w
+    y0         = (128 - CHAR_H * SCALE) // 2
+ 
+    offset = 0
+    while True:
+        OLED.fill(0)
+        draw_text(OLED, MESSAGE, x=128 - offset, y=y0)
+        OLED.show()
+        offset = (offset + SPEED) % full_cycle
+        sleep(DELAY)
+ 
+'''Основний цикл (Щоб показати якусь одну таску коментуйте інші(ctrl + / або command + /), або робіть маніпуляції через кнопку)'''
 while True:
     task1()
     task2()
