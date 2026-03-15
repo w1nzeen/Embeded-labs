@@ -287,7 +287,7 @@ sys.modules['time'] = _time_mod
 #  — виконуємо все КРІМ верхньорівневих while-циклів
 #    (вони замінюються нашим контролером)
 # ═══════════════════════════════════════════════════════════════
-MAIN_FILE = 'main.py'
+MAIN_FILE = 'blink.py'
 
 try:
     source = open(MAIN_FILE, encoding='utf-8').read()
