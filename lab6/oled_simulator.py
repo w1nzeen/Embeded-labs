@@ -30,7 +30,8 @@ class _Display:
     black  = 0
 
     def __init__(self):
-        self._buf = [[0] * self.WIDTH for _ in range(self.HEIGHT)]
+        self._buf      = [[0] * self.WIDTH for _ in range(self.HEIGHT)]
+        self._prev_buf = [[-1] * self.WIDTH for _ in range(self.HEIGHT)]  # -1 = ніколи не малювалось → перший кадр завжди повний
         self._skip      = threading.Event()
         self._direction = 1
 
@@ -140,7 +141,7 @@ class _Display:
         self._btn_state_lbl.config(text="Released", fg="#666699")
 
     def set_label(self, text: str):
-        self._mode_var.set(text)
+        self._root.after(0, lambda: self._mode_var.set(text))
 
     # ── interruptible sleep ───────────────────────────────────
     def wait(self, seconds: float):
@@ -278,22 +279,33 @@ class _Display:
             x += 8
 
     def show(self):
-        S = self.SCALE
+        import threading
+        S   = self.SCALE
         pal = self._palette
         buf = self._buf
-        # Будуємо один рядок даних для PhotoImage.put()
-        # Кожен піксель розтягуємо SCALE разів по горизонталі,
-        # кожен рядок — SCALE разів по вертикалі
-        rows = []
+
+        # Знаходимо лише змінені рядки — порівнюємо з попереднім кадром
+        dirty = []
         for y in range(self.HEIGHT):
-            row_colors = [pal[buf[y][x]] for x in range(self.WIDTH)]
-            # розтягуємо по горизонталі
-            stretched = " ".join(c for c in row_colors for _ in range(S))
-            # повторюємо рядок SCALE разів
-            for _ in range(S):
-                rows.append("{" + stretched + "}")
-        self._img.put(" ".join(rows))
-        self._root.update()
+            if buf[y] != self._prev_buf[y]:
+                row_colors = [pal[buf[y][x]] for x in range(self.WIDTH)]
+                stretched  = " ".join(c for c in row_colors for _ in range(S))
+                row_data   = "{" + stretched + "}"
+                for i in range(S):
+                    dirty.append((y * S + i, row_data))
+                self._prev_buf[y] = buf[y][:]   # оновлюємо кеш
+
+        if not dirty:
+            return   # нічого не змінилось — пропускаємо
+
+        def _put():
+            for screen_y, data in dirty:
+                self._img.put(data, to=(0, screen_y))
+
+        if threading.current_thread() is threading.main_thread():
+            _put()
+        else:
+            self._root.after(0, _put)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -394,46 +406,20 @@ _machine.SPI      = _SPI
 _machine.freq     = lambda *a: 125_000_000
 sys.modules['machine'] = _machine
 
-# ── asyncio — замінюємо на сумісну заглушку ──────────────────
-import asyncio as _real_asyncio
+# ── asyncio / uasyncio — тонка заглушка для MicroPython API ──
+import asyncio as _asyncio
+import inspect as _inspect
+import platform as _platform
 
-class _FakeLoop:
-    """Запускає coroutine-и через реальний asyncio в окремому потоці."""
-    def run_until_complete(self, coro):
-        _real_asyncio.run(coro)
+# На Windows використовуємо SelectorEventLoop — він працює в потоках
+if _platform.system() == 'Windows':
+    _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
 
-class _AsyncIO:
-    @staticmethod
-    def run(coro):
-        import threading
-        def _runner():
-            _real_asyncio.run(coro)
-        t = threading.Thread(target=_runner, daemon=True)
-        t.start()
+# Додаємо sleep_ms якого немає у стандартному asyncio (є тільки в MicroPython)
+_asyncio.sleep_ms = lambda ms: _asyncio.sleep(ms / 1000)
 
-    @staticmethod
-    async def sleep_ms(ms):
-        await _real_asyncio.sleep(ms / 1000)
-
-    @staticmethod
-    async def sleep(s):
-        await _real_asyncio.sleep(s)
-
-    @staticmethod
-    async def gather(*coros):
-        await _real_asyncio.gather(*coros)
-
-    get_event_loop = lambda: _FakeLoop()
-
-_asyncio_mod = types.ModuleType('asyncio')
-_asyncio_mod.run        = _AsyncIO.run
-_asyncio_mod.sleep_ms   = _AsyncIO.sleep_ms
-_asyncio_mod.sleep      = _AsyncIO.sleep
-_asyncio_mod.gather     = _AsyncIO.gather
-sys.modules['asyncio']  = _asyncio_mod
-
-# ── uasyncio (псевдонім для MicroPython) ──────────────────────
-sys.modules['uasyncio'] = _asyncio_mod
+# uasyncio — псевдонім для MicroPython
+sys.modules['uasyncio'] = _asyncio
 
 # ── OLED_1inch5 — повертає наш display ────────────────────────
 class _OLED_Wrapper:
@@ -469,10 +455,23 @@ except FileNotFoundError:
 
 tree = ast.parse(source, filename=MAIN_FILE)
 
-# Розділяємо: ініціалізація vs while-цикли верхнього рівня
+def _is_asyncio_run(node):
+    """Перевіряє чи є вузол викликом asyncio.run(...)"""
+    if not isinstance(node, ast.Expr): return False
+    c = node.value
+    if not isinstance(c, ast.Call): return False
+    # asyncio.run(...)
+    if isinstance(c.func, ast.Attribute):
+        return c.func.attr == 'run'
+    # run(...) якщо імпортовано напряму
+    if isinstance(c.func, ast.Name):
+        return c.func.id == 'run'
+    return False
+
+# Розділяємо: ініціалізація vs while / asyncio.run верхнього рівня
 init_nodes, _loop_nodes = [], []
 for node in tree.body:
-    if isinstance(node, ast.While):
+    if isinstance(node, ast.While) or _is_asyncio_run(node):
         _loop_nodes.append(node)
     else:
         init_nodes.append(node)
@@ -483,18 +482,23 @@ exec(compile(ast.Module(body=init_nodes, type_ignores=[]),
              MAIN_FILE, 'exec'), ns)
 
 # ── Збираємо frame_* функції у порядку визначення ─────────────
-frames = sorted(
-    [(name, fn) for name, fn in ns.items()
-     if callable(fn) and (
-         name.startswith('frame_') or name.startswith('task')
-     )],
-    key=lambda nf: nf[1].__code__.co_firstlineno
-)
-
-if not frames:
-    print("[simulator] Не знайдено жодної функції.")
-    print("  Назви функції як: frame_*()  або  task*()")
-    sys.exit(1)
+# Якщо є async def main() — запускаємо її як єдиний режим
+_main_fn = ns.get('main')
+if _main_fn and _inspect.iscoroutinefunction(_main_fn):
+    print("[simulator] Знайдено async main() — запускаємо через asyncio")
+    frames = [('main', _main_fn)]
+else:
+    frames = sorted(
+        [(name, fn) for name, fn in ns.items()
+         if callable(fn) and (
+             name.startswith('frame_') or name.startswith('task')
+         )],
+        key=lambda nf: nf[1].__code__.co_firstlineno
+    )
+    if not frames:
+        print("[simulator] Не знайдено жодної функції.")
+        print("  Назви функції як: frame_*()  або  task*()")
+        sys.exit(1)
 
 print(f"[simulator] Знайдено режими: {[n for n,_ in frames]}")
 
@@ -505,17 +509,27 @@ current = [0]
 
 def run_loop():
     total = len(frames)
+    # Створюємо окремий event loop для цього потоку (безпечно на Windows)
+    loop = _asyncio.new_event_loop()
+    _asyncio.set_event_loop(loop)
+
     while True:
         display._skip.clear()
         name, fn = frames[current[0]]
         display.set_label(f"{current[0]+1}/{total}  —  {name}()")
         try:
-            fn()
+            if _inspect.iscoroutinefunction(fn):
+                loop.run_until_complete(fn())
+            else:
+                fn()
         except tk.TclError:
-            break   # вікно закрито
-        # після завершення (або переривання) — рухаємось далі
+            break
+        except Exception as e:
+            print(f"[simulator] Помилка у {name}(): {e}")
         current[0] = (current[0] + display._direction) % total
         display._direction = 1
+
+    loop.close()
 
 threading.Thread(target=run_loop, daemon=True).start()
 
