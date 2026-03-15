@@ -131,9 +131,11 @@ class _Display:
         label.config(text=f"{v} ({pct:.1f}%)")
 
     def _on_button(self):
-        # Симулюємо натискання: pin=0 на 200мс, потім відпускання: pin=1
+        # Симулюємо натискання: pin=0, викликаємо IRQ handler, потім відпускання
         _Pin._states[15] = 0
         self._btn_state_lbl.config(text="Pressed!", fg="#aaaaff")
+        # Викликаємо зареєстрований IRQ handler у окремому потоці
+        _Pin.trigger_irq(15)
         self._root.after(200, self._btn_release)
 
     def _btn_release(self):
@@ -537,13 +539,19 @@ threading.Thread(target=run_loop, daemon=True).start()
 import time as _time_real
 
 def _run_timers():
-    while True:
-        _time_real.sleep(0.05)
-        try:
-            for _period_ms, _cb in list(_timer_callbacks):
-                _cb(None)
-        except Exception as _e:
-            pass   # ігноруємо помилки таймера щоб не падав
+    """Кожен таймер запускається у власному потоці з своїм period."""
+    import threading as _th
+    def _timer_thread(period_ms, cb):
+        while True:
+            _time_real.sleep(period_ms / 1000)
+            try:
+                cb(None)
+            except Exception:
+                pass
+    for period_ms, cb in list(_timer_callbacks):
+        _th.Thread(target=_timer_thread,
+                   args=(period_ms, cb),
+                   daemon=True).start()
 
 threading.Thread(target=_run_timers, daemon=True).start()
 
