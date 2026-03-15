@@ -75,27 +75,42 @@ class _Display:
         self._root.bind("<Right>",  lambda e: self._next())
         self._root.bind("<Escape>", lambda e: self._root.destroy())
 
-        # ── Слайдер ADC (імітує фоторезистор/потенціометр) ───
-        adc_frame = tk.Frame(self._root, bg="#12122a")
-        adc_frame.pack(pady=(0, 4))
-        tk.Label(adc_frame, text="ADC (GP26):",
-                 fg="#8888cc", bg="#12122a",
-                 font=("Courier", 10)).pack(side="left", padx=(0, 8))
-        self._adc_var = tk.IntVar(value=32768)
-        self._adc_val_label = tk.Label(adc_frame,
-                 text="32768  (50.0%)",
-                 fg="#ccccff", bg="#12122a",
-                 font=("Courier", 10), width=18, anchor="w")
-        self._adc_val_label.pack(side="right", padx=8)
-        adc_slider = tk.Scale(adc_frame,
-                 variable=self._adc_var,
-                 from_=0, to=65535,
-                 orient="horizontal", length=220,
-                 bg="#12122a", fg="#ccccff",
-                 troughcolor="#252555",
-                 highlightthickness=0, showvalue=False,
-                 command=self._on_adc_change)
-        adc_slider.pack(side="left")
+        # ── Панель керування ──────────────────────────────────
+        ctrl = tk.Frame(self._root, bg="#12122a")
+        ctrl.pack(pady=(0, 6), padx=16, fill="x")
+
+        def make_adc_row(parent, label, pin, row):
+            tk.Label(parent, text=label, fg="#8888cc", bg="#12122a",
+                     font=("Courier", 10), width=14, anchor="w"
+                     ).grid(row=row, column=0, padx=(0,6), pady=2)
+            var = tk.IntVar(value=32768)
+            lbl = tk.Label(parent, text="32768 (50.0%)",
+                           fg="#ccccff", bg="#12122a",
+                           font=("Courier", 10), width=16, anchor="w")
+            lbl.grid(row=row, column=2, padx=6)
+            sl = tk.Scale(parent, variable=var, from_=0, to=65535,
+                          orient="horizontal", length=200,
+                          bg="#12122a", fg="#ccccff", troughcolor="#252555",
+                          highlightthickness=0, showvalue=False,
+                          command=lambda v, p=pin, l=lbl: self._on_adc(p, v, l))
+            sl.grid(row=row, column=1)
+            return var
+
+        self._adc26_var = make_adc_row(ctrl, "ADC GP26 (photo)", 26, 0)
+        self._adc27_var = make_adc_row(ctrl, "ADC GP27 (pot)  ", 27, 1)
+
+        # ── Кнопка GP15 (імітує фізичну кнопку) ──────────────
+        btn_row = tk.Frame(ctrl, bg="#12122a")
+        btn_row.grid(row=2, column=0, columnspan=3, pady=(4,0), sticky="w")
+        tk.Label(btn_row, text="BTN GP15:", fg="#8888cc", bg="#12122a",
+                 font=("Courier", 10)).pack(side="left", padx=(0,10))
+        self._btn_state_lbl = tk.Label(btn_row, text="Released",
+                 fg="#666699", bg="#12122a", font=("Courier", 10), width=10)
+        self._btn_state_lbl.pack(side="left")
+        tk.Button(btn_row, text="Press button",
+                  font=("Courier", 10), bg="#252555", fg="#fff",
+                  relief="flat", padx=10, cursor="hand2",
+                  command=self._on_button).pack(side="left", padx=8)
 
         # ── PhotoImage — один об'єкт замість 16 384 прямокутників ─
         self._img = tk.PhotoImage(width=W, height=H)
@@ -108,14 +123,17 @@ class _Display:
     def _prev(self): self._direction = -1; self._skip.set()
     def _next(self): self._direction =  1; self._skip.set()
 
-    def _on_adc_change(self, val):
+    def _on_adc(self, pin, val, label):
         v = int(val)
-        from sys import modules
-        if 'machine' in modules:
-            modules['machine'].ADC._value = v
+        _adc_values[pin] = v          # глобальний словник симулятора
         pct = v / 65535 * 100
-        self._adc_val_label.config(
-            text=f"{v}  ({pct:.1f}%)")
+        label.config(text=f"{v} ({pct:.1f}%)")
+
+    def _on_button(self):
+        self._btn_state_lbl.config(text="Pressed!", fg="#aaaaff")
+        self._root.after(300, lambda: self._btn_state_lbl.config(
+            text="Released", fg="#666699"))
+        _Pin.trigger_irq(15)          # глобальний клас симулятора
 
     def set_label(self, text: str):
         self._mode_var.set(text)
@@ -288,20 +306,64 @@ class _Pin:
 class _I2C:
     def __init__(self, *a, **kw): pass
 
-class _ADC:
-    """Заглушка ADC з інтерактивним слайдером у вікні симулятора."""
-    _value = 32768   # глобальне значення, змінюється слайдером
+# Реєстр значень ADC: pin_number → value
+_adc_values = {26: 32768, 27: 32768}
 
-    def __init__(self, *a, **kw): pass
-    def read_u16(self):  return _ADC._value
-    def read(self):      return _ADC._value >> 4   # 12-bit
+class _ADC:
+    """Заглушка ADC — значення керується слайдером симулятора."""
+    def __init__(self, pin=None, *a, **kw):
+        # Витягуємо номер піна
+        if hasattr(pin, '_num'):
+            self._pin = pin._num
+        elif isinstance(pin, int):
+            self._pin = pin
+        else:
+            self._pin = 26
+    def read_u16(self):
+        return _adc_values.get(self._pin, 32768)
+    def read(self):
+        return self.read_u16() >> 4
+
+class _Pin:
+    OUT      = 1
+    IN       = 0
+    PULL_UP  = 1
+    PULL_DOWN= 2
+    IRQ_FALLING = 4
+    IRQ_RISING  = 8
+    _irq_handlers = {}   # pin_num → handler
+
+    def __init__(self, num=None, *a, **kw):
+        self._num = num
+    def __call__(self, *a): pass
+    def value(self, *a): return 0
+    def irq(self, trigger=None, handler=None):
+        if handler and self._num is not None:
+            _Pin._irq_handlers[self._pin_key()] = handler
+    def _pin_key(self): return self._num
+
+    @staticmethod
+    def trigger_irq(pin_num):
+        """Викликається симулятором при натисканні кнопки."""
+        h = _Pin._irq_handlers.get(pin_num)
+        if h:
+            import threading
+            threading.Thread(target=h, args=(None,), daemon=True).start()
+
+# Реєстр callback-ів таймера
+_timer_callbacks = []
 
 class _Timer:
-    ONE_SHOT  = 0
-    PERIODIC  = 1
-    def __init__(self, *a, **kw): pass
-    def init(self, *a, **kw): pass
-    def deinit(self): pass
+    ONE_SHOT = 0
+    PERIODIC = 1
+    def __init__(self, *a, **kw):
+        self._cb = None
+    def init(self, mode=1, period=100, callback=None, **kw):
+        self._cb = callback
+        if callback:
+            _timer_callbacks.append((period, callback))
+    def deinit(self):
+        pass
 
 class _UART:
     def __init__(self, *a, **kw): pass
@@ -315,14 +377,14 @@ class _SPI:
     def read(self, *a):  return b''
 
 _machine = types.ModuleType('machine')
-_machine.Pin     = _Pin
-_machine.SoftI2C = _I2C
-_machine.I2C     = _I2C
-_machine.ADC     = _ADC
-_machine.Timer   = _Timer
-_machine.UART    = _UART
-_machine.SPI     = _SPI
-_machine.freq    = lambda *a: 125_000_000
+_machine.Pin      = _Pin
+_machine.SoftI2C  = _I2C
+_machine.I2C      = _I2C
+_machine.ADC      = _ADC
+_machine.Timer    = _Timer
+_machine.UART     = _UART
+_machine.SPI      = _SPI
+_machine.freq     = lambda *a: 125_000_000
 sys.modules['machine'] = _machine
 
 # ── OLED_1inch5 — повертає наш display ────────────────────────
@@ -408,4 +470,19 @@ def run_loop():
         display._direction = 1
 
 threading.Thread(target=run_loop, daemon=True).start()
+
+# ── Таймерні переривання ──────────────────────────────────────
+import time as _time_real
+
+def _run_timers():
+    while True:
+        _time_real.sleep(0.05)
+        try:
+            for _period_ms, _cb in list(_timer_callbacks):
+                _cb(None)
+        except Exception as _e:
+            pass   # ігноруємо помилки таймера щоб не падав
+
+threading.Thread(target=_run_timers, daemon=True).start()
+
 display._root.mainloop()
