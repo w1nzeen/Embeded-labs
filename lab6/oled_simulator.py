@@ -130,10 +130,14 @@ class _Display:
         label.config(text=f"{v} ({pct:.1f}%)")
 
     def _on_button(self):
+        # Симулюємо натискання: pin=0 на 200мс, потім відпускання: pin=1
+        _Pin._states[15] = 0
         self._btn_state_lbl.config(text="Pressed!", fg="#aaaaff")
-        self._root.after(300, lambda: self._btn_state_lbl.config(
-            text="Released", fg="#666699"))
-        _Pin.trigger_irq(15)          # глобальний клас симулятора
+        self._root.after(200, self._btn_release)
+
+    def _btn_release(self):
+        _Pin._states[15] = 1
+        self._btn_state_lbl.config(text="Released", fg="#666699")
 
     def set_label(self, text: str):
         self._mode_var.set(text)
@@ -332,11 +336,14 @@ class _Pin:
     IRQ_FALLING = 4
     IRQ_RISING  = 8
     _irq_handlers = {}   # pin_num → handler
+    _states       = {}   # pin_num → value (0/1)
 
     def __init__(self, num=None, *a, **kw):
         self._num = num
+        _Pin._states[num] = 1   # PULL_UP default = 1
     def __call__(self, *a): pass
-    def value(self, *a): return 0
+    def value(self, *a):
+        return _Pin._states.get(self._num, 1)
     def irq(self, trigger=None, handler=None):
         if handler and self._num is not None:
             _Pin._irq_handlers[self._pin_key()] = handler
@@ -386,6 +393,47 @@ _machine.UART     = _UART
 _machine.SPI      = _SPI
 _machine.freq     = lambda *a: 125_000_000
 sys.modules['machine'] = _machine
+
+# ── asyncio — замінюємо на сумісну заглушку ──────────────────
+import asyncio as _real_asyncio
+
+class _FakeLoop:
+    """Запускає coroutine-и через реальний asyncio в окремому потоці."""
+    def run_until_complete(self, coro):
+        _real_asyncio.run(coro)
+
+class _AsyncIO:
+    @staticmethod
+    def run(coro):
+        import threading
+        def _runner():
+            _real_asyncio.run(coro)
+        t = threading.Thread(target=_runner, daemon=True)
+        t.start()
+
+    @staticmethod
+    async def sleep_ms(ms):
+        await _real_asyncio.sleep(ms / 1000)
+
+    @staticmethod
+    async def sleep(s):
+        await _real_asyncio.sleep(s)
+
+    @staticmethod
+    async def gather(*coros):
+        await _real_asyncio.gather(*coros)
+
+    get_event_loop = lambda: _FakeLoop()
+
+_asyncio_mod = types.ModuleType('asyncio')
+_asyncio_mod.run        = _AsyncIO.run
+_asyncio_mod.sleep_ms   = _AsyncIO.sleep_ms
+_asyncio_mod.sleep      = _AsyncIO.sleep
+_asyncio_mod.gather     = _AsyncIO.gather
+sys.modules['asyncio']  = _asyncio_mod
+
+# ── uasyncio (псевдонім для MicroPython) ──────────────────────
+sys.modules['uasyncio'] = _asyncio_mod
 
 # ── OLED_1inch5 — повертає наш display ────────────────────────
 class _OLED_Wrapper:
