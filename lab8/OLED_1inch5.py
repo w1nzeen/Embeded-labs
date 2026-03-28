@@ -1,6 +1,6 @@
 # MicroPython SSD1327 OLED driver, I2C interface
 
-import framebuf
+import framebuf # type: ignore
 import time
 
 class OLED_1inch5(framebuf.FrameBuffer):
