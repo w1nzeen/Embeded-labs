@@ -1,7 +1,7 @@
 import time
 import math
 import struct
-from machine import Pin, I2C
+from machine import Pin, I2C # type: ignore
 
 SGP40_CMD_FEATURE_SET = [0x20, 0x2F]
 SGP40_CMD_MEASURE_TEST = [0X28,0X0E]
