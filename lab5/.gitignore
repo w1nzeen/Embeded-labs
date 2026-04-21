@@ -1,2 +1,4 @@
 oled_drawing.py
 __pycache__
+.vscode
+.micropico

@@ -21,7 +21,6 @@ sleep(0.1)
 
 OLED = OLED_1inch5(OLED_ADDR, i2c)
 
-''' Кінець налаштувань :) Далі все за вами!'''
 
 
 '''Перша таска "Вивід тексту" '''
@@ -63,10 +62,9 @@ def task2():
 
 '''Третя таска "Анімація" '''
 def task3():
-    pass 
 
     MESSAGE    = "Smarahdove Nebo Chekaye Na Zavtra! "
-    SPEED      = 3       # пікселів за кадр
+    SPEED      = 10       # пікселів за кадр
     DELAY      = 0.01    # затримка між кадрами
  
     text_w     = text_width(MESSAGE)

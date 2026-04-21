@@ -1,75 +1,70 @@
-import asyncio
-from machine import Pin, ADC, SoftI2C
+from machine import Pin, ADC, SoftI2C, Timer
 from OLED_1inch5 import OLED_1inch5
 from time import sleep
 
+i2c_num = 1
+sda_pin = Pin(6)
+scl_pin = Pin(7)
 
-i2c = SoftI2C(scl=Pin(7), sda=Pin(6), freq=1_000_000)
+WIDTH     = 128
+HEIGHT    = 128
+OLED_ADDR = 0x3d
+
+photoresistor = ADC(Pin(26))
+potentiometer = ADC(Pin(27))  
+
+i2c = SoftI2C(scl=scl_pin, sda=sda_pin, freq=1_000_000)
 sleep(0.1)
-OLED = OLED_1inch5(0x3d, i2c)
 
-photoresistor = ADC(Pin(26))   
-potentiometer = ADC(Pin(27))   
-button        = Pin(15, Pin.IN, Pin.PULL_UP)  
+OLED = OLED_1inch5(OLED_ADDR, i2c)
 
-state = {
-    "display_on": True,
-    "photo_val":  0,
-    "pot_val":    0,
-}
+display_on = True
+vol_photo  = 0
+vol_pot    = 0
 
-async def task_button():
-    prev = 1   
-    while True:
-        cur = button.value()
-        if prev == 1 and cur == 0:          
-            state["display_on"] = not state["display_on"]
-            if not state["display_on"]:
-                OLED.fill(0)
-                OLED.show()
-        prev = cur
-        await asyncio.sleep_ms(50)
+button = Pin(3, Pin.IN, Pin.PULL_UP)
 
-async def task_adc():
-    while True:
-        state["photo_val"] = photoresistor.read_u16()
-        state["pot_val"]   = potentiometer.read_u16()
-        await asyncio.sleep_ms(100)
+def button_handler(pin):
+    global display_on
+    display_on = not display_on
+    if not display_on:
+        OLED.fill(0)
+        OLED.show()
 
-async def task_display():
-    while True:
-        if state["display_on"]:
-            photo_pct = state["photo_val"] / 65535 * 100
-            pot_pct   = state["pot_val"]   / 65535 * 100
-            photo_bar = 1 + int(photo_pct * 125 / 100)
-            pot_bar   = 1 + int(pot_pct   * 125 / 100)
+button.irq(trigger=Pin.IRQ_FALLING, handler=button_handler)
 
-            OLED.fill(0)
+def timer_handler(timer):
+    global vol_photo, vol_pot
+    vol_photo = photoresistor.read_u16()
+    vol_pot   = potentiometer.read_u16()
 
-            OLED.text("GP26 Photo", 1, 2, 15)
-            OLED.text("{:.1f}%".format(photo_pct), 80, 2, 10)
-            OLED.rect(0, 14, 127, 16, 15)
-            OLED.rect(1, 15, photo_bar, 14, 8, True)
+timer = Timer()
+timer.init(mode=Timer.PERIODIC, period=100, callback=timer_handler)
 
-            OLED.text("GP27 Pot  ", 1, 36, 15)
-            OLED.text("{:.1f}%".format(pot_pct), 80, 36, 10)
-            OLED.rect(0, 48, 127, 16, 15)
-            OLED.rect(1, 49, pot_bar, 14, 12, True)
+def tasks():
+    if not display_on:
+        sleep(0.1)
+        return
 
-            OLED.hline(0, 72, 128, 5)
-            status = "ON " if state["display_on"] else "OFF"
-            OLED.text("Display: " + status, 1, 78, 6)
-            OLED.text("BTN GP15", 1, 92, 4)
+    brightness     = vol_photo / 65535 * 100
+    brightness_pot = vol_pot   / 65535 * 100
+    width_bar      = 1 + int(brightness     * 125 / 100)
+    width_bar_pot  = 1 + int(brightness_pot * 125 / 100)
 
-            OLED.show()
+    OLED.fill(0)
 
-        await asyncio.sleep_ms(50)
+    OLED.text("Brightness", 1, 5, 15)
+    OLED.text("{0:.2f} %".format(brightness), 1, 20, 15)
+    OLED.rect(0, 50, 127, 30, 15)
+    OLED.rect(1, 51, width_bar, 28, 6, True)
 
-async def main():
-    await asyncio.gather(
-        task_button(),
-        task_adc(),
-        task_display(),
-    )
+    OLED.text("Pot", 1, 88, 15)
+    OLED.text("{0:.2f} %".format(brightness_pot), 1, 100, 15)
+    OLED.rect(0, 112, 127, 14, 15)
+    OLED.rect(1, 113, width_bar_pot, 12, 6, True)
 
-asyncio.run(main())
+    OLED.show()
+    sleep(0.1)
+
+while True:
+    tasks()

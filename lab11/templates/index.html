@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="refresh" content="30" />
+  <title>Pico W — Панель керування</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-chip">⬡</span>
+        <span class="logo-text">Pico<em>W</em></span>
+      </div>
+      <div class="header-meta">
+        <span class="meta-item" title="IP-адреса">&#9783; {{IP}}</span>
+        <span class="meta-item" title="Час роботи">&#9203; {{UPTIME}}</span>
+        <span class="status-badge {{PROGRAM_ENABLED_CLASS}}">{{PROGRAM_ENABLED}}</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="grid">
+
+    <!-- ── Блок LED ───────────────────────────────────────── -->
+    <section class="card card--led">
+      <div class="card-label">LED · GP10</div>
+      <div class="led-indicator {{LED_CLASS}}">
+        <div class="led-glow"></div>
+        <span class="led-state-text">{{STATE}}</span>
+      </div>
+      <div class="btn-row">
+        <a href="/lighton"  class="btn btn--on">Увімкнути</a>
+        <a href="/lightoff" class="btn btn--off">Вимкнути</a>
+      </div>
+    </section>
+
+    <!-- ── Сенсори ───────────────────────────────────────── -->
+    <section class="card card--sensors">
+      <div class="card-label">Сенсори</div>
+      <div class="sensor-grid">
+        <div class="sensor-item">
+          <span class="sensor-icon">🌡</span>
+          <span class="sensor-value">{{TEMPERATURE}}</span>
+          <span class="sensor-name">Температура</span>
+        </div>
+        <div class="sensor-item">
+          <span class="sensor-icon">💧</span>
+          <span class="sensor-value">{{HUMIDITY}}</span>
+          <span class="sensor-name">Вологість</span>
+        </div>
+        <div class="sensor-item">
+          <span class="sensor-icon">🌿</span>
+          <span class="sensor-value">{{AIR_QUALITY}}</span>
+          <span class="sensor-name">Якість повітря</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Повідомлення ───────────────────────────────────── -->
+    <section class="card card--message">
+      <div class="card-label">Повідомлення на дисплей</div>
+      <div class="last-message">
+        <span class="msg-label">Останнє:</span>
+        <span class="msg-text">{{LAST_MESSAGE}}</span>
+      </div>
+      <form action="/message" method="POST" class="msg-form">
+        <input
+          type="text"
+          name="message"
+          maxlength="64"
+          placeholder="Введіть текст..."
+          class="msg-input"
+          autocomplete="off"
+        />
+        <button type="submit" class="btn btn--send">Надіслати &#8594;</button>
+      </form>
+    </section>
+
+    <!-- ── Керування системою ────────────────────────────── -->
+    <section class="card card--system">
+      <div class="card-label">Система</div>
+      <p class="system-desc">
+        Натисніть кнопку або використовуйте апаратну кнопку GP15
+        для призупинення/активації програми.
+      </p>
+      <a href="/toggle-system" class="btn btn--toggle">
+        ⏯ Перемкнути стан
+      </a>
+      <a href="/status" class="btn btn--link" target="_blank">
+        &#123;&#125; JSON статус
+      </a>
+      <a href="/sensors" class="btn btn--link" target="_blank">
+        &#123;&#125; JSON сенсори
+      </a>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    Сторінка оновлюється автоматично кожні 30 секунд &nbsp;·&nbsp;
+    <a href="/">Оновити зараз</a>
+  </footer>
+
+</body>
+</html>
